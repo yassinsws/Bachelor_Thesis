@@ -1,5 +1,4 @@
 import logging
-import os
 import flask
 import ai
 
@@ -12,7 +11,6 @@ logging_ai: ai.AI = ai.AI()
 def main():
     message: str = flask.request.args.get("message")
     lecture_file: str = flask.request.args.get("lectureFile")
-    #session_id: str = flask.request.args.get("sessionId")
     logging.info(f"Received new request from session 1 with message: {message}")
     return logging_ai.generate_response(message), 200
 

@@ -15,13 +15,11 @@ headers = {
 
 
 def prompt(query):
-
     return f""" You are a university professor.
-                  Answer the following question using the provided context.
-                   If you can't find the answer, do not pretend you know it, but answer "Please ask a more specific question."
-                   Answer in the same langauge as the question
-                   Question:  {query} 
-                   """
+    Answer the following question using the provided context.
+    If you can't find the answer, do not pretend you know it, ask for more information"
+    Answer in the same langauge as the question. If you used your own knowledge apart from the context provided mention that.
+    Question:  {query} """
 
 
 def chunk_files(subdirectory_path, subdirectory):
@@ -137,7 +135,7 @@ class AI:
             }
             self.client.schema.create_class(class_obj)
             print("Schema created")
-            directory_path = "../../lectures"
+            directory_path = "../../../lectures"
             print("Importing data into the batch")
             # Iterate through each subdirectory in the root directory
             for subdirectory in os.listdir(directory_path):
@@ -146,7 +144,6 @@ class AI:
                     self.batch_import(subdirectory_path, subdirectory)
                     # Wait for 10 seconds before proceeding to the next iteration of the loop
                     #time.sleep(10)
-            # Check if it's indeed a directory
             print("Import Finished")
 
     def batch_import(self, directory_path, subdirectory):
@@ -154,11 +151,9 @@ class AI:
         # Configure a batch process
         with self.client.batch.configure(
                 # `batch_size` takes an `int` value to enable auto-batching
-                # (`None` is used for manual batching)
                 # dynamically update the `batch_size` based on import speed
                 dynamic=True,
-                # `timeout_retries` takes an `int` value to retry on time_outs
-                timeout_retries=0,
+                timeout_retries=0
         ) as batch:
             # Batch import all Questions
             for i, d in enumerate(data):
@@ -168,7 +163,6 @@ class AI:
                     "page_interval": d["page_interval"],
                     "lecture_id": d["lecture_id"]
                 }
-
                 self.client.batch.add_data_object(
                     properties,
                     "Lectures"
@@ -185,9 +179,7 @@ class AI:
                     "valueText": lecture_id
                 })
                 .with_near_text({"concepts": query})
-                .with_generate(grouped_task=f'Formulate a proper response to the question {query} based on the '
-                                            f'provided facts.\nDo not use your own knowledge.\n Do not use additional '
-                                            f'sources.')
+                .with_generate(grouped_task=prompt(query))
                 .with_limit(5)
                 .do()
             )
@@ -203,7 +195,6 @@ class AI:
                              )
                 .with_generate(
                     grouped_task=prompt(query))
-                .with_autocut(1)
                 .with_limit(3)
                 .do()
             )
