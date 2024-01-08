@@ -135,7 +135,7 @@ class AI:
             }
             self.client.schema.create_class(class_obj)
             print("Schema created")
-            directory_path = "../../../lectures"
+            directory_path = "../../lectures"
             print("Importing data into the batch")
             # Iterate through each subdirectory in the root directory
             for subdirectory in os.listdir(directory_path):
