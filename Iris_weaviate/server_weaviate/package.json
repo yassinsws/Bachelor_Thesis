@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "weaviate-ts-embedded": "^1.2.0"
+  }
+}
