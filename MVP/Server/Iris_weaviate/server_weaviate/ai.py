@@ -4,20 +4,33 @@ import time
 import fitz  # PyMuPDF
 import openai
 import weaviate
+from openai.lib.azure import AzureOpenAI
 from weaviate.gql.get import HybridFusion
 from unstructured.cleaners.core import clean
 
 azure_openai_key = os.getenv("AZURE_OPENAI_KEY")
 azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
 resource_name = os.getenv("RESOURCE_NAME")
+azure_client = AzureOpenAI(
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+    api_key=os.getenv("AZURE_OPENAI_KEY"),
+    api_version="2023-05-15"
+)
 headers = {
     "X-Azure-Api-Key": azure_openai_key,
 }
 
 
+def query_openai(messages):
+    return azure_client.chat.completions.create(
+        model="gpt-35-16k",  # model = "deployment_name".
+        messages=messages
+    )
+
+
 def prompt(query):
     return f""" You are a university professor.
-    Answer the following question using the provided context.
+    Answer the following question using only the provided context.
     If you can't find the answer, do not pretend you know it, ask for more information"
     Answer in the same langauge as the question. If you used your own knowledge apart from the context provided mention that.
     Question:  {query} """
@@ -149,10 +162,10 @@ class AI:
         data = chunk_files(directory_path, subdirectory)
         # Configure a batch process
         self.client.batch.configure(
-        # `batch_size` takes an `int` value to enable auto-batching
-        # dynamically update the `batch_size` based on import speed
-                dynamic=True,
-                timeout_retries=0
+            # `batch_size` takes an `int` value to enable auto-batching
+            # dynamically update the `batch_size` based on import speed
+            dynamic=True,
+            timeout_retries=0
         )
         with self.client.batch as batch:
             # Batch import all Questions
@@ -188,23 +201,32 @@ class AI:
                 if not embeddings_created:
                     raise RuntimeError("Failed to create embeddings.")
 
-    def generate_response(self, query, lecture_id):
+    def generate_response(self, user_message, lecture_id):
+        #add hypothetical document embeddings (hyde)
+        completion = query_openai(messages=[{
+            "role": "user",
+            "content": f"""
+                                        Please give back lecture content that can answer this inquiry: 
+                                        Do not add anything else.
+                                        "{user_message}".\n
+                                        """}])
+        generated_lecture = completion.choices[0].message.content
         if lecture_id != "" and lecture_id is not None:
             response = (
                 self.client.query
-                .get("Lectures", ["content", "slide_id", "page_interval", "lecture_id"])
+                .get("Lectures", ["content", "slide_id", "page_interval", ])
                 .with_where({
                     "path": ["lecture_id"],
                     "operator": "Equal",
                     "valueText": lecture_id
                 })
-                .with_near_text({"concepts": query})
-                .with_additional(f'rerank( query: "{query}", property: "content"){{score}}')
-                .with_generate(grouped_task=prompt(query))
+                .with_near_text({"concepts": generated_lecture})
+#                .with_additional(f'rerank( query: "{user_message}", property: "content"){{score}}')
+                .with_generate(grouped_task=prompt(user_message))
                 .with_limit(3)
                 .do()
             )
-            generated_response = response["data"]["Get"]["Lectures"][2]["_additional"]["generate"]["groupedResult"]
+            generated_response = response["data"]["Get"]["Lectures"][0]["_additional"]["generate"]["groupedResult"]
 
         else:
             response = (
@@ -212,15 +234,16 @@ class AI:
                 .get("Lectures", ["content", "slide_id", "page_interval", "lecture_id"])
                 # alpha = 0 forces using a pure keyword search method (BM25)
                 # alpha = 1 forces using a pure vector search method
-                .with_hybrid(query=query,
+                .with_hybrid(query=user_message,
                              alpha=1,
                              fusion_type=HybridFusion.RELATIVE_SCORE
+
                              )
-                # .with_additional(f'rerank( query: "{query}", property: "content"){{score}}')
-                .with_generate(grouped_task=prompt(query))
+#                .with_additional(f'rerank( query: "{user_message}", property: "content"){{score}}')
+                .with_generate(grouped_task=prompt(user_message))
                 .with_limit(3)
                 .do()
             )
             generated_response = response["data"]["Get"]["Lectures"][0]["_additional"]["generate"]["groupedResult"]
-            print(json.dumps(response, indent=2))
+        print(json.dumps(response, indent=2))
         return generated_response
