@@ -2,6 +2,7 @@ import json
 import os
 import time
 import fitz  # PyMuPDF
+import openai
 import weaviate
 from weaviate.gql.get import HybridFusion
 from unstructured.cleaners.core import clean
@@ -142,31 +143,50 @@ class AI:
                 subdirectory_path = os.path.join(directory_path, subdirectory)
                 if os.path.isdir(subdirectory_path):
                     self.batch_import(subdirectory_path, subdirectory)
-                    # Wait for 10 seconds before proceeding to the next iteration of the loop
-                    #time.sleep(10)
             print("Import Finished")
 
     def batch_import(self, directory_path, subdirectory):
         data = chunk_files(directory_path, subdirectory)
         # Configure a batch process
-        with self.client.batch.configure(
-                # `batch_size` takes an `int` value to enable auto-batching
-                # dynamically update the `batch_size` based on import speed
+        self.client.batch.configure(
+        # `batch_size` takes an `int` value to enable auto-batching
+        # dynamically update the `batch_size` based on import speed
                 dynamic=True,
                 timeout_retries=0
-        ) as batch:
+        )
+        with self.client.batch as batch:
             # Batch import all Questions
+
             for i, d in enumerate(data):
+                embeddings_created = False
                 properties = {
                     "content": d["content"],
                     "slide_id": d["slide_id"],
                     "page_interval": d["page_interval"],
                     "lecture_id": d["lecture_id"]
                 }
-                self.client.batch.add_data_object(
-                    properties,
-                    "Lectures"
-                )
+                # Initialize the flag
+                embeddings_created = False
+                # create embeddings (exponential backoff to avoid RateLimitError)
+                for j in range(5):  # max 5 retries
+                    # Only attempt to create embeddings if not already created
+                    if not embeddings_created:
+                        try:
+                            batch.add_data_object(
+                                properties,
+                                "Lectures"
+                            )
+                            embeddings_created = True  # Set flag to True on success
+                            break  # Break the loop as embedding creation was successful
+                        except openai.error.RateLimitError:
+                            time.sleep(2 ** j)  # wait 2^j seconds before retrying
+                            print("Retrying import...")
+                    else:
+                        break  # Exit loop if embeddings already created
+
+                # Raise an error if embeddings were not created after retries
+                if not embeddings_created:
+                    raise RuntimeError("Failed to create embeddings.")
 
     def generate_response(self, query, lecture_id):
         if lecture_id != "" and lecture_id is not None:
@@ -179,10 +199,13 @@ class AI:
                     "valueText": lecture_id
                 })
                 .with_near_text({"concepts": query})
+                .with_additional(f'rerank( query: "{query}", property: "content"){{score}}')
                 .with_generate(grouped_task=prompt(query))
-                .with_limit(5)
+                .with_limit(3)
                 .do()
             )
+            generated_response = response["data"]["Get"]["Lectures"][2]["_additional"]["generate"]["groupedResult"]
+
         else:
             response = (
                 self.client.query
@@ -193,12 +216,11 @@ class AI:
                              alpha=1,
                              fusion_type=HybridFusion.RELATIVE_SCORE
                              )
-                .with_generate(
-                    grouped_task=prompt(query))
+                # .with_additional(f'rerank( query: "{query}", property: "content"){{score}}')
+                .with_generate(grouped_task=prompt(query))
                 .with_limit(3)
                 .do()
             )
-
-        print(json.dumps(response, indent=2))
-
-        return response["data"]["Get"]["Lectures"][0]["_additional"]["generate"]["groupedResult"]
+            generated_response = response["data"]["Get"]["Lectures"][0]["_additional"]["generate"]["groupedResult"]
+            print(json.dumps(response, indent=2))
+        return generated_response
