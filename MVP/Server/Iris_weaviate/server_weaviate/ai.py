@@ -245,5 +245,7 @@ class AI:
                 .do()
             )
             generated_response = response["data"]["Get"]["Lectures"][0]["_additional"]["generate"]["groupedResult"]
+        slides = response["data"]["Get"]["Lectures"][0]["slide_id"]
+        page_interval = response["data"]["Get"]["Lectures"][0]["page_interval"]
         print(json.dumps(response, indent=2))
-        return generated_response
+        return generated_response +f"""\n\nMore relevant information on the  slides {slides} {page_interval} """
