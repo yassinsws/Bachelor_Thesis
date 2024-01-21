@@ -2,16 +2,19 @@ import json
 import os
 import time
 import fitz  # PyMuPDF
+import llama_index
 import openai
 import weaviate
-from openai.lib.azure import AzureOpenAI
 from weaviate.gql.get import HybridFusion
 from unstructured.cleaners.core import clean
+from llama_index.vector_stores import WeaviateVectorStore
+from llama_index import VectorStoreIndex, ServiceContext, set_global_service_context
+from llama_index.response.pprint_utils import pprint_source_node
 
 azure_openai_key = os.getenv("AZURE_OPENAI_KEY")
 azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
 resource_name = os.getenv("RESOURCE_NAME")
-azure_client = AzureOpenAI(
+azure_client = openai.lib.azure.AzureOpenAI(
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
     api_key=os.getenv("AZURE_OPENAI_KEY"),
     api_version="2023-05-15"
@@ -202,15 +205,39 @@ class AI:
                     raise RuntimeError("Failed to create embeddings.")
 
     def generate_response(self, user_message, lecture_id):
-        #add hypothetical document embeddings (hyde)
         completion = query_openai(messages=[{
             "role": "user",
             "content": f"""
-                                        Please give back lecture content that can answer this inquiry: 
-                                        Do not add anything else.
-                                        "{user_message}".\n
-                                        """}])
+                                               Please give back lecture content that can answer this inquiry: 
+                                               Do not add anything else.
+                                               "{user_message}".\n
+                                               """}])
         generated_lecture = completion.choices[0].message.content
+
+        if lecture_id == "CIT5230000":
+            llm = llama_index.llms.AzureOpenAI(model="gpt-35-turbo-16k", deployment_name="gpt-35-16k",
+                                               api_key=azure_openai_key, azure_endpoint=azure_endpoint,
+                                               api_version="2023-03-15-preview")
+            embed_model = llama_index.embeddings.AzureOpenAIEmbedding(
+                model="text-embedding-ada-002",
+                deployment_name="te-ada-002",
+                api_key=azure_openai_key,
+                azure_endpoint=azure_endpoint,
+                api_version="2023-03-15-preview"
+            )
+            service_context = ServiceContext.from_defaults(llm=llm,  embed_model=embed_model)
+
+            vector_store = WeaviateVectorStore(
+                weaviate_client=self.client, index_name="Lectures", text_key="content"
+            )
+            retriever = VectorStoreIndex.from_vector_store(vector_store, service_context=service_context).as_retriever(
+                similarity_top_k=1
+            )
+            nodes = retriever.retrieve(generated_lecture)
+            pprint_source_node(nodes[0])
+            print(nodes[0].node.metadata)
+
+        # add hypothetical document embeddings (hyde)
         if lecture_id != "" and lecture_id is not None:
             response = (
                 self.client.query
@@ -221,9 +248,9 @@ class AI:
                     "valueText": lecture_id
                 })
                 .with_near_text({"concepts": generated_lecture})
-#                .with_additional(f'rerank( query: "{user_message}", property: "content"){{score}}')
+                #                .with_additional(f'rerank( query: "{user_message}", property: "content"){{score}}')
                 .with_generate(grouped_task=prompt(user_message))
-                .with_limit(3)
+                .with_limit(1)
                 .do()
             )
             generated_response = response["data"]["Get"]["Lectures"][0]["_additional"]["generate"]["groupedResult"]
@@ -239,7 +266,7 @@ class AI:
                              fusion_type=HybridFusion.RELATIVE_SCORE
 
                              )
-#                .with_additional(f'rerank( query: "{user_message}", property: "content"){{score}}')
+                #                .with_additional(f'rerank( query: "{user_message}", property: "content"){{score}}')
                 .with_generate(grouped_task=prompt(user_message))
                 .with_limit(3)
                 .do()
@@ -248,4 +275,4 @@ class AI:
         slides = response["data"]["Get"]["Lectures"][0]["slide_id"]
         page_interval = response["data"]["Get"]["Lectures"][0]["page_interval"]
         print(json.dumps(response, indent=2))
-        return generated_response +f"""\n\nMore relevant information on the  slides {slides} {page_interval} """
+        return generated_response + f"""\n\nMore relevant information on the  slides {slides} "pages":{page_interval} """
