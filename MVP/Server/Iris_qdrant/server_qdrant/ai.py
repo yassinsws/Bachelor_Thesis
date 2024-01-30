@@ -59,7 +59,7 @@ class AI:
 #            collection_name=self.collection_name,
 #            vectors_config=models.VectorParams(size=1536, distance=models.Distance.COSINE)
 #        )
-        directory_path = "../../lectures"
+        directory_path = "../../../lectures"
         print("Importing data into the batch")
         # Iterate through each subdirectory in the root directory
 #        for subdirectory in os.listdir(directory_path):

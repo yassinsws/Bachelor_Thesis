@@ -17,5 +17,5 @@ COPY ai.py /app/ai.py
 # Expose port 5000 to the host machine
 EXPOSE 5000
 
-# Set the command to run the app.py script when the container starts
+# Set the command to run the app_image.py script when the container starts
 CMD ["python3", "app.py"]

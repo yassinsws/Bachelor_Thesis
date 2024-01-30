@@ -10,6 +10,52 @@ from unstructured.cleaners.core import clean
 from llama_index.vector_stores import WeaviateVectorStore
 from llama_index import VectorStoreIndex, ServiceContext, set_global_service_context
 from llama_index.response.pprint_utils import pprint_source_node
+import os
+
+import weaviate
+from langchain.document_loaders import GutenbergLoader
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.vectorstores import Weaviate
+
+# Grimms' Fairy Tales by Jacob Grimm and Wilhelm Grimm
+loader = GutenbergLoader("https://www.gutenberg.org/files/2591/2591-0.txt")
+documents = loader.load()
+
+text_splitter = CharacterTextSplitter(
+    chunk_size=500, chunk_overlap=0, length_function=len
+)
+docs = text_splitter.split_documents(documents)
+WEAVIATE_URL = "http://weaviate:8080"
+client = weaviate.Client(
+    url=WEAVIATE_URL,
+    additional_headers={"X-OpenAI-Api-Key": os.environ["OPENAI_API_KEY"]},
+)
+client.schema.delete_all()
+client.schema.get()
+schema = {
+    "classes": [
+        {
+            "class": "Test",
+            "description": "A written paragraph",
+            "vectorizer": "text2vec-openai",
+            "moduleConfig": {"text2vec-openai": {"model": "ada", "type": "text"}},
+        },
+    ]
+}
+client.schema.create(schema)
+vectorstore = Weaviate(client, "Paragraph", "content")
+
+text_meta_pair = [(doc.page_content, doc.metadata) for doc in docs]
+
+texts, meta = list(zip(*text_meta_pair))
+vectorstore.add_texts(texts, meta)
+query = "the part where with talking animals"
+docs = vectorstore.similarity_search(query)
+
+for doc in docs:
+    print(doc.page_content)
+    print("*" * 80)
 
 azure_openai_key = os.getenv("AZURE_OPENAI_KEY")
 azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -152,7 +198,7 @@ class AI:
             }
             self.client.schema.create_class(class_obj)
             print("Schema created")
-            directory_path = "../../../lectures"
+            directory_path = "../../lectures"
             print("Importing data into the batch")
             # Iterate through each subdirectory in the root directory
             for subdirectory in os.listdir(directory_path):
@@ -213,6 +259,29 @@ class AI:
                                                "{user_message}".\n
                                                """}])
         generated_lecture = completion.choices[0].message.content
+
+        if lecture_id == "CIT5230000":
+            llm = llama_index.llms.AzureOpenAI(model="gpt-35-turbo-16k", deployment_name="gpt-35-16k",
+                                               api_key=azure_openai_key, azure_endpoint=azure_endpoint,
+                                               api_version="2023-03-15-preview")
+            embed_model = llama_index.embeddings.AzureOpenAIEmbedding(
+                model="text-embedding-ada-002",
+                deployment_name="te-ada-002",
+                api_key=azure_openai_key,
+                azure_endpoint=azure_endpoint,
+                api_version="2023-03-15-preview"
+            )
+            service_context = ServiceContext.from_defaults(llm=llm,  embed_model=embed_model)
+
+            vector_store = WeaviateVectorStore(
+                weaviate_client=self.client, index_name="Lectures", text_key="content"
+            )
+            retriever = VectorStoreIndex.from_vector_store(vector_store, service_context=service_context).as_retriever(
+                similarity_top_k=1
+            )
+            nodes = retriever.retrieve(generated_lecture)
+            pprint_source_node(nodes[0])
+            print(nodes[0].node.metadata)
 
         # add hypothetical document embeddings (hyde)
         if lecture_id != "" and lecture_id is not None:
