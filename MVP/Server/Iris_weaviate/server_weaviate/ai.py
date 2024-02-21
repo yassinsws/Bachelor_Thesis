@@ -2,14 +2,10 @@ import json
 import os
 import time
 import fitz  # PyMuPDF
-import llama_index
 import openai
 import weaviate
 from weaviate.gql.get import HybridFusion
 from unstructured.cleaners.core import clean
-from llama_index.vector_stores import WeaviateVectorStore
-from llama_index import VectorStoreIndex, ServiceContext, set_global_service_context
-from llama_index.response.pprint_utils import pprint_source_node
 
 azure_openai_key = os.getenv("AZURE_OPENAI_KEY")
 azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")

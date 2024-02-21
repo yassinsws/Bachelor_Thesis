@@ -1,26 +1,12 @@
-import time
-import fitz  # PyMuPDF
-import openai
-import weaviate
 from openai import OpenAI
-from weaviate.gql.get import HybridFusion
-from unstructured.cleaners.core import clean
 from unstructured.partition.pdf import partition_pdf
 import os
-import base64
-from collections import defaultdict
-
 import pickle
 
 
 class AI:
     def __init__(self):
         self.filtered_elements = None
-
-    # Function to encode images
-    def encode_image(image_path):
-        with open(image_path, "rb") as image_file:
-            return base64.b64encode(image_file.read()).decode('utf-8')
 
     def image_interpretation(self):
         if os.path.exists("raw_pdf_elements.pkl"):
@@ -45,38 +31,42 @@ class AI:
             with open("raw_pdf_elements.pkl", "wb") as file:
                 pickle.dump(raw_pdf_elements, file)
         raw_pdf_elements = [element.to_dict() for element in raw_pdf_elements]
-        filtered_elements = [element for element in raw_pdf_elements if
-                             element['type'] not in ['Footer', 'Header', 'UncategorizedText']]
-        self.filtered_elements = filtered_elements
+        self.filtered_elements = [element for element in raw_pdf_elements if
+                                  element['type'] not in ['Footer', 'Header', 'UncategorizedText']]
+        print(self.filtered_elements.__str__() + '\n')
 
     def generate_response(self, user_message):
-        client = OpenAI(api_key='')
+        client = OpenAI(api_key='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')
+        elements = [element for element in self.filtered_elements if element['type'] != 'Image' and element['metadata']['page_number'] == 28]
+        base64_image = []
         for element in self.filtered_elements:
-            if element['type'] == 'Image' and element['metadata']['page_number'] == 6:
-                base64_image = element['metadata']['image_base64']
-                completion = client.chat.completions.create(
-                    model="gpt-4-vision-preview",
-                    messages=[
+            if element['metadata']['page_number'] == 28 and element['type'] == 'Image':
+                base64_image.append(element['metadata']['image_base64'])
+        print(elements.__str__())
+        completion = client.chat.completions.create(
+            model="gpt-4-vision-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
                         {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": 'In this message you will find an image coded in base64, can you explain '
-                                            'to me the image provided ?',
-                                },
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{base64_image}"
-                                    }
-                                }
-                            ],
+                            "type": "text",
+                            "text": f'{user_message}\n'
+                                    f'here is the context: {elements.__str__()}\n',
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image[0]}"
+                            }
                         }
                     ],
-                    max_tokens=500
-                )
-                generated_lecture = completion.choices[0].message.content
-                print(generated_lecture + '\n')
-                return generated_lecture
+                }
+            ],
+            max_tokens=1000
+        )
+        generated_lecture = completion.choices[0].message.content
+        print(generated_lecture + '\n')
+        if generated_lecture:
+            return generated_lecture
         return 'no base 64 coding found!'

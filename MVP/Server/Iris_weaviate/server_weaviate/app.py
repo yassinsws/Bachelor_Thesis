@@ -15,5 +15,8 @@ def main():
 
 if __name__ == "__main__":
     logging.info("Starting server...")
-#    logging_ai.create_class()
+    #logging_ai.chunk()
+    #logging_ai.combine_elements_by_page()
+    #logging_ai.image_interpretation()
+    logging_ai.create_class()
     app.run(port=8000)
